@@ -1,3 +1,4 @@
+
 #define TRIG_PIN 9
 #define ECHO_PIN 10
 
@@ -9,10 +10,18 @@
 
 const unsigned long ECHO_TIMEOUT = 30000;
 const unsigned long DEBOUNCE_TIME = 50;
+const unsigned long MEASURE_INTERVAL = 100;
 
 bool buttonState = HIGH;
 bool lastButtonReading = HIGH;
 unsigned long lastDebounceTime = 0;
+unsigned long lastMeasureTime = 0;
+
+bool validMeasurement = false;
+float distance = 0;
+
+float measurements[3];
+byte measurementIndex = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -29,16 +38,22 @@ void setup() {
   digitalWrite(TRIG_PIN, LOW);
   turnOffLEDs();
 
-  Serial.println("Arduino HC-SR04 system started");
+  Serial.println("Improved HC-SR04 system started");
 }
 
 void loop() {
   checkButton();
 
-  if (buttonState == LOW) {
-    measureDistance();
-  } else {
+  if (buttonState == HIGH) {
+    validMeasurement = false;
+    measurementIndex = 0;
     turnOffLEDs();
+    return;
+  }
+
+  if (millis() - lastMeasureTime >= MEASURE_INTERVAL) {
+    lastMeasureTime = millis();
+    measureDistance();
   }
 }
 
@@ -69,19 +84,64 @@ void measureDistance() {
   );
 
   if (duration == 0) {
+    validMeasurement = false;
+    measurementIndex = 0;
     turnOffLEDs();
-    Serial.println("ERROR: No Echo signal!");
-    delay(100);
+    Serial.println("ERROR: No valid Echo!");
     return;
   }
 
-  float distance = duration * 0.0343 / 2.0;
+  float currentDistance = duration * 0.0343 / 2.0;
 
-  Serial.print("Distance: ");
-  Serial.print(distance);
-  Serial.println(" cm");
+  measurements[measurementIndex] = currentDistance;
+  measurementIndex++;
 
+  if (measurementIndex >= 3) {
+    distance = getMedian(
+      measurements[0],
+      measurements[1],
+      measurements[2]
+    );
+
+    measurementIndex = 0;
+    validMeasurement = true;
+
+    updateLEDs();
+
+    Serial.print("Filtered distance: ");
+    Serial.print(distance);
+    Serial.println(" cm");
+  }
+}
+
+float getMedian(float a, float b, float c) {
+  if (a > b) {
+    float temp = a;
+    a = b;
+    b = temp;
+  }
+
+  if (b > c) {
+    float temp = b;
+    b = c;
+    c = temp;
+  }
+
+  if (a > b) {
+    float temp = a;
+    a = b;
+    b = temp;
+  }
+
+  return b;
+}
+
+void updateLEDs() {
   turnOffLEDs();
+
+  if (!validMeasurement) {
+    return;
+  }
 
   if (distance < 20) {
     digitalWrite(RED_LED, HIGH);
@@ -92,8 +152,6 @@ void measureDistance() {
   else {
     digitalWrite(GREEN_LED, HIGH);
   }
-
-  delay(100);
 }
 
 void turnOffLEDs() {
